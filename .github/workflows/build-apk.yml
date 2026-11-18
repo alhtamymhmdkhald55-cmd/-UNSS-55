@@ -1,0 +1,95 @@
+
+name: Build Anis UNSS APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Extract updated project
+        run: |
+          set -e
+          ZIP=$(find . -maxdepth 4 -type f \
+            -name "Anis_UNSS_location_quran_fixed.zip" \
+            -print -quit)
+
+          if [ -z "$ZIP" ]; then
+            echo "Project ZIP not found"
+            exit 1
+          fi
+
+          mkdir -p project
+          unzip -oq "$ZIP" -d project
+
+          test -f project/package.json
+          test -f project/capacitor.config.json
+          test -f project/www/index.html
+
+      - name: Install dependencies
+        working-directory: project
+        run: npm install
+
+      - name: Add Android platform
+        working-directory: project
+        run: npx cap add android
+
+      - name: Install native components
+        working-directory: project
+        run: bash native/android/install-native.sh
+
+      - name: Copy icons and sounds
+        working-directory: project
+        run: |
+          set -e
+
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-$d"
+            cp resources/mipmap-$d/*.png \
+              "android/app/src/main/res/mipmap-$d/"
+          done
+
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi nodpi; do
+            mkdir -p "android/app/src/main/res/drawable-$d"
+            cp resources/drawable-$d/*.png \
+              "android/app/src/main/res/drawable-$d/"
+          done
+
+          mkdir -p android/app/src/main/res/raw
+          cp resources/sounds/*.wav android/app/src/main/res/raw/
+          cp resources/sounds/adhan.mp3 android/app/src/main/res/raw/
+
+      - name: Sync Android
+        working-directory: project
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: project/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Anis-UNSS-APK
+          path: project/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
